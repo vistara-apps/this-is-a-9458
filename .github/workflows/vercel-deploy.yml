@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -29,7 +34,7 @@ jobs:
         NODE_OPTIONS: --max-old-space-size=4096
 
     - name: Deploy to Vercel (Production)
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && secrets.VERCEL_TOKEN != ''
       uses: amondnet/vercel-action@v25
       with:
         vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -39,7 +44,7 @@ jobs:
       continue-on-error: true
 
     - name: Deploy to Vercel (Preview)
-      if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
+      if: (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master') && secrets.VERCEL_TOKEN != ''
       uses: amondnet/vercel-action@v25
       with:
         vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -52,15 +57,20 @@ jobs:
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: `✅ **CI Pipeline Successful!**
-            \n\nAll checks have passed:
-            \n\n- ✅ Dependencies installed
-            \n- ✅ Application built successfully
-            \n- ✅ Ready for deployment
-            \n\n*Note: Vercel deployment requires additional configuration of secrets.*`
-          });
+          try {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ **CI Pipeline Successful!**
+              \n\nAll checks have passed:
+              \n\n- ✅ Dependencies installed
+              \n- ✅ Application built successfully
+              \n- ✅ Ready for deployment
+              \n\n*Note: Vercel deployment requires additional configuration of secrets.*`
+            });
+          } catch (error) {
+            console.log('Unable to create comment:', error.message);
+          }
