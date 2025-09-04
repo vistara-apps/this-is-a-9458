@@ -1,32 +1,56 @@
-import { useWalletClient } from "wagmi";
 import { useCallback } from "react";
-import axios from "axios";
-import { withPaymentInterceptor, decodeXPaymentResponse } from "x402-axios";
+import { loadStripe } from "@stripe/stripe-js";
+import { paymentsService } from "../services/payments";
+
+// Initialize Stripe
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 export function usePaymentContext() {
-  const { data: walletClient, isError, isLoading } = useWalletClient();
+  const createSession = useCallback(async (amount, description = "LocalGigs Payment") => {
+    try {
+      // Create payment intent on the server
+      const { clientSecret } = await paymentsService.createPaymentIntent({
+        amount: Math.round(amount * 100), // Convert to cents
+        description,
+      });
 
-  const createSession = useCallback(async (amount = "$0.001") => {
-    if (!walletClient || !walletClient.account) throw new Error("please connect your wallet");
-    if (isError) throw new Error("wallet not connected");
-    if (isLoading) throw new Error("wallet is loading");
-    
-    const baseClient = axios.create({
-      baseURL: "https://payments.vistara.dev",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    
-    const apiClient = withPaymentInterceptor(baseClient, walletClient);
-    const response = await apiClient.post("/api/payment", { amount });
-    const paymentResponse = response.config.headers["X-PAYMENT"];
-    
-    if (!paymentResponse) throw new Error("payment response is absent");
-    const decoded = decodeXPaymentResponse(paymentResponse);
-    console.log(`decoded payment response: ${JSON.stringify(decoded)}`);
-    return decoded;
-  }, [walletClient, isError, isLoading]);
+      const stripe = await stripePromise;
+      if (!stripe) {
+        throw new Error("Stripe failed to initialize");
+      }
 
-  return { createSession };
+      return {
+        stripe,
+        clientSecret,
+        amount,
+        description,
+      };
+    } catch (error) {
+      console.error("Payment session creation failed:", error);
+      throw error;
+    }
+  }, []);
+
+  const confirmPayment = useCallback(async (stripe, clientSecret, paymentMethod) => {
+    try {
+      const result = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: paymentMethod,
+      });
+
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+
+      return result.paymentIntent;
+    } catch (error) {
+      console.error("Payment confirmation failed:", error);
+      throw error;
+    }
+  }, []);
+
+  return { 
+    createSession,
+    confirmPayment,
+  };
 }
+
